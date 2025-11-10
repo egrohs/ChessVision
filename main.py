@@ -35,6 +35,20 @@ NEUTRAL = (128, 128, 128)
 # Espessura do contorno das peças (em pixels)
 OUTLINE_THICKNESS = 2
 
+# Botões de voltar/avançar (posição e tamanho)
+BUTTON_HEIGHT = 40
+BUTTON_WIDTH = 100
+BUTTON_MARGIN = 10
+BUTTON_Y = HEIGHT - BUTTON_HEIGHT - BUTTON_MARGIN
+BACK_BUTTON_RECT = pygame.Rect(BUTTON_MARGIN, BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT)
+FORWARD_BUTTON_RECT = pygame.Rect(BUTTON_MARGIN + BUTTON_WIDTH + BUTTON_MARGIN, BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT)
+ENGINE_BUTTON_RECT = pygame.Rect(BUTTON_MARGIN + 2 * (BUTTON_WIDTH + BUTTON_MARGIN), BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT)
+BUTTON_COLOR = (100, 100, 150)
+BUTTON_HOVER_COLOR = (150, 150, 200)
+BUTTON_TEXT_COLOR = (255, 255, 255)
+BUTTON_DISABLED_COLOR = (80, 80, 100)
+BUTTON_DISABLED_HOVER_COLOR = (120, 120, 150)
+
 # Símbolos Unicode para peças
 PIECE_SYMBOLS = {
     'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔',
@@ -141,6 +155,12 @@ class ChessGame:
         self.valid_moves = []
         # Último movimento (chess.Move) — usado para realce
         self.last_move = None
+        # Movimentos desfeitos — para implementar refazer
+        self.redo_stack = []
+        # Flag para bloquear engine após desfazer (permite humano jogar)
+        self.allow_engine_move = True
+        # Flag para habilitar/desabilitar engine
+        self.engine_enabled = True
         
         # Modo de jogo: "pvp" (player vs player) ou "pve" (player vs engine)
         self.mode = mode
@@ -349,6 +369,66 @@ class ChessGame:
             return chess.square(col, 7 - row)
         return None
     
+    def draw_buttons(self, mouse_pos):
+        """Desenha botões de voltar/avançar/engine na parte inferior"""
+        # Verifica se mouse está sobre cada botão para hover effect
+        back_hover = BACK_BUTTON_RECT.collidepoint(mouse_pos)
+        forward_hover = FORWARD_BUTTON_RECT.collidepoint(mouse_pos)
+        engine_hover = ENGINE_BUTTON_RECT.collidepoint(mouse_pos) if self.mode == "pve" else False
+        
+        # Desenha botão voltar
+        back_color = BUTTON_HOVER_COLOR if back_hover else BUTTON_COLOR
+        pygame.draw.rect(self.screen, back_color, BACK_BUTTON_RECT)
+        pygame.draw.rect(self.screen, (255, 255, 255), BACK_BUTTON_RECT, 2)
+        back_text = self.info_font.render("◄ Voltar", True, BUTTON_TEXT_COLOR)
+        back_rect = back_text.get_rect(center=BACK_BUTTON_RECT.center)
+        self.screen.blit(back_text, back_rect)
+        
+        # Desenha botão avançar
+        forward_color = BUTTON_HOVER_COLOR if forward_hover else BUTTON_COLOR
+        pygame.draw.rect(self.screen, forward_color, FORWARD_BUTTON_RECT)
+        pygame.draw.rect(self.screen, (255, 255, 255), FORWARD_BUTTON_RECT, 2)
+        forward_text = self.info_font.render("Avançar ►", True, BUTTON_TEXT_COLOR)
+        forward_rect = forward_text.get_rect(center=FORWARD_BUTTON_RECT.center)
+        self.screen.blit(forward_text, forward_rect)
+        
+        # Desenha botão de engine (apenas em PvE)
+        if self.mode == "pve":
+            # Cor varia se engine está habilitada ou desabilitada
+            if self.engine_enabled:
+                engine_color = BUTTON_HOVER_COLOR if engine_hover else BUTTON_COLOR
+                engine_label = "Engine ✓"
+            else:
+                engine_color = BUTTON_DISABLED_HOVER_COLOR if engine_hover else BUTTON_DISABLED_COLOR
+                engine_label = "Engine ✗"
+            
+            pygame.draw.rect(self.screen, engine_color, ENGINE_BUTTON_RECT)
+            pygame.draw.rect(self.screen, (255, 255, 255), ENGINE_BUTTON_RECT, 2)
+            engine_text = self.info_font.render(engine_label, True, BUTTON_TEXT_COLOR)
+            engine_rect = engine_text.get_rect(center=ENGINE_BUTTON_RECT.center)
+            self.screen.blit(engine_text, engine_rect)
+    
+    def handle_button_click(self, mouse_pos):
+        """Processa clique em botões"""
+        if BACK_BUTTON_RECT.collidepoint(mouse_pos):
+            # Voltar apenas um movimento
+            self.undo_move()
+            self.selected_square = None
+            self.valid_moves = []
+        elif FORWARD_BUTTON_RECT.collidepoint(mouse_pos):
+            self.redo_move()
+            self.selected_square = None
+            self.valid_moves = []
+        elif ENGINE_BUTTON_RECT.collidepoint(mouse_pos) and self.mode == "pve":
+            # Toggle engine on/off
+            self.engine_enabled = not self.engine_enabled
+            # Se desabilitar engine, bloqueia que ela jogue
+            if not self.engine_enabled:
+                self.allow_engine_move = False
+            else:
+                # Se reabilitar engine e for seu turno, permite jogar imediatamente
+                self.allow_engine_move = True
+    
     def make_engine_move(self):
         """Faz a engine jogar"""
         if self.engine and not self.board.is_game_over():
@@ -358,7 +438,57 @@ class ChessGame:
                 self.board.push(result.move)
                 # Atualiza o último movimento
                 self.last_move = result.move
+                # Limpa redo_stack quando novo movimento é feito
+                self.redo_stack = []
             self.engine_thinking = False
+    
+    def undo_move(self):
+        """Desfaz um movimento e salva em redo_stack"""
+        if len(self.board.move_stack) > 0:
+            move = self.board.pop()
+            self.redo_stack.append(move)
+            # Atualiza last_move
+            if len(self.board.move_stack) > 0:
+                self.last_move = self.board.move_stack[-1]
+            else:
+                self.last_move = None
+    
+    def redo_move(self):
+        """Refaz um movimento da redo_stack"""
+        if len(self.redo_stack) > 0:
+            move = self.redo_stack.pop()
+            self.board.push(move)
+            # Atualiza last_move
+            self.last_move = move
+    
+    def undo_to_human_turn(self):
+        """Volta até o turno humano anterior (em modo PvE)"""
+        if self.mode != "pve" or len(self.board.move_stack) == 0:
+            # Se não for PvE ou não houver movimentos, apenas desfaz um
+            self.undo_move()
+            return
+        
+        # Se é o turno da engine agora, significa que humano já jogou
+        # Desfaz 2 movimentos (último do humano + último da engine)
+        if self.board.turn == self.engine_side and len(self.board.move_stack) >= 2:
+            # Desfaz engine + humano
+            move1 = self.board.pop()
+            self.redo_stack.insert(0, move1)
+            move2 = self.board.pop()
+            self.redo_stack.insert(0, move2)
+        elif len(self.board.move_stack) >= 1:
+            # É o turno do humano (engine ainda não jogou), desfaz apenas o lance do humano
+            move = self.board.pop()
+            self.redo_stack.append(move)
+        
+        # Atualiza last_move
+        if len(self.board.move_stack) > 0:
+            self.last_move = self.board.move_stack[-1]
+        else:
+            self.last_move = None
+        
+        # Bloqueia engine para permitir humano jogar
+        self.allow_engine_move = False
     
     def handle_click(self, square):
         """Processa clique em uma casa do tabuleiro"""
@@ -389,6 +519,10 @@ class ChessGame:
                 self.board.push(move)
                 # Armazena o último movimento para realce
                 self.last_move = move
+                # Limpa redo_stack quando novo movimento é feito
+                self.redo_stack = []
+                # Permite engine jogar após humano fazer movimento
+                self.allow_engine_move = True
                 self.selected_square = None
                 self.valid_moves = []
             else:
@@ -412,13 +546,21 @@ class ChessGame:
         running = True
         
         while running:
+            mouse_pos = pygame.mouse.get_pos()
+            
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
                 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
-                    square = self.get_square_under_mouse()
-                    self.handle_click(square)
+                    # Verifica clique em botões primeiro
+                    if (BACK_BUTTON_RECT.collidepoint(mouse_pos) or FORWARD_BUTTON_RECT.collidepoint(mouse_pos) or
+                        ENGINE_BUTTON_RECT.collidepoint(mouse_pos)):
+                        self.handle_button_click(mouse_pos)
+                    else:
+                        # Clique no tabuleiro
+                        square = self.get_square_under_mouse()
+                        self.handle_click(square)
                 
                 elif event.type == pygame.KEYDOWN:
                     # Desfazer movimento com 'Z'
@@ -436,6 +578,8 @@ class ChessGame:
                             self.last_move = self.board.move_stack[-1]
                         else:
                             self.last_move = None
+                        # Limpa redo_stack quando desfazer via teclado
+                        self.redo_stack = []
                     
                     # Reiniciar com 'R'
                     elif event.key == pygame.K_r:
@@ -444,13 +588,18 @@ class ChessGame:
                         self.valid_moves = []
                         # Limpa realce do último movimento
                         self.last_move = None
+                        # Limpa redo_stack
+                        self.redo_stack = []
+                        # Permite engine jogar novamente
+                        self.allow_engine_move = True
                     
                     # Alternar visualização de controle com 'C'
                     elif event.key == pygame.K_c:
                         self.show_control = not self.show_control
             
-            # Engine joga automaticamente quando é a vez dela
-            if self.mode == "pve" and self.board.turn == self.engine_side and not self.board.is_game_over():
+            # Engine joga automaticamente quando é a vez dela (respeitando allow_engine_move e engine_enabled)
+            if (self.mode == "pve" and self.board.turn == self.engine_side and 
+                not self.board.is_game_over() and self.allow_engine_move and self.engine_enabled):
                 if not self.engine_thinking:
                     self.make_engine_move()
             
@@ -458,6 +607,7 @@ class ChessGame:
             self.draw_board()
             self.draw_pieces()
             self.draw_info()
+            self.draw_buttons(mouse_pos)
             
             pygame.display.flip()
             self.clock.tick(FPS)
