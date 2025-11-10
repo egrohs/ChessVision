@@ -34,6 +34,8 @@ RED_BASE = (255, 0, 0)
 NEUTRAL = (128, 128, 128)
 NO_CONTROL = (60, 60, 60)  # Nenhum jogador ameaça
 BALANCED_CONTROL = (150, 100, 150)  # Ambos ameaçam igualmente
+WEAK_SQUARE_WHITE = (200, 150, 50)  # Amarelo/laranja escuro para fraqueza branca
+WEAK_SQUARE_BLACK = (200, 100, 50)  # Laranja mais avermelhado para fraqueza preta
 
 # Espessura do contorno das peças (em pixels)
 OUTLINE_THICKNESS = 2
@@ -175,6 +177,8 @@ class ChessGame:
         
         # Controle de visualização
         self.show_control = True
+        self.show_weak_squares = True  # Mostrar casas fracas permanentes
+        self.weak_squares = {chess.WHITE: [], chess.BLACK: []}
         
         # Inicializa engine se modo PvE
         if self.mode == "pve":
@@ -286,19 +290,102 @@ class ChessGame:
             intensity = min(255, black_attackers * 50)
             return (intensity, 0, 0)
     
+    def calculate_weak_squares(self):
+        """
+        Calcula casas fracas permanentes.
+        Uma casa é fraca se nenhum peão aliado nas colunas adjacentes está em linhas atrás dela.
+        
+        Peões brancos:
+        - Começam em rank 1, avançam para cima (rank aumenta)
+        - Para defender uma casa em (file, rank), precisa haver peão branco em 
+          coluna adjacente (file-1 ou file+1) E em rank < target_rank
+        - Uma casa é fraca se não há peão em nenhuma coluna adjacente em rank menor
+        
+        Peões pretos:
+        - Começam em rank 6, avançam para baixo (rank diminui)
+        - Para defender uma casa em (file, rank), precisa haver peão preto em
+          coluna adjacente (file-1 ou file+1) E em rank > target_rank
+        - Uma casa é fraca se não há peão em nenhuma coluna adjacente em rank maior
+        """
+        weak_squares = {chess.WHITE: [], chess.BLACK: []}
+        
+        for square in chess.SQUARES:
+            target_rank = chess.square_rank(square)
+            target_file = chess.square_file(square)
+            
+            # Verifica se é fraca para brancas
+            # Precisa verificar colunas adjacentes (file-1 e file+1)
+            white_has_defender_behind = False
+            
+            # Coluna esquerda (file-1)
+            if target_file > 0:
+                for pawn_square in self.board.pieces(chess.PAWN, chess.WHITE):
+                    pawn_file = chess.square_file(pawn_square)
+                    pawn_rank = chess.square_rank(pawn_square)
+                    # Peão pode defender se está em coluna adjacente esquerda E em rank menor (atrás)
+                    if pawn_file == target_file - 1 and pawn_rank < target_rank:
+                        white_has_defender_behind = True
+                        break
+            
+            # Coluna direita (file+1)
+            if target_file < 7 and not white_has_defender_behind:
+                for pawn_square in self.board.pieces(chess.PAWN, chess.WHITE):
+                    pawn_file = chess.square_file(pawn_square)
+                    pawn_rank = chess.square_rank(pawn_square)
+                    # Peão pode defender se está em coluna adjacente direita E em rank menor (atrás)
+                    if pawn_file == target_file + 1 and pawn_rank < target_rank:
+                        white_has_defender_behind = True
+                        break
+            
+            if not white_has_defender_behind:
+                weak_squares[chess.WHITE].append(square)
+            
+            # Verifica se é fraca para pretas
+            # Precisa verificar colunas adjacentes (file-1 e file+1)
+            black_has_defender_behind = False
+            
+            # Coluna esquerda (file-1)
+            if target_file > 0:
+                for pawn_square in self.board.pieces(chess.PAWN, chess.BLACK):
+                    pawn_file = chess.square_file(pawn_square)
+                    pawn_rank = chess.square_rank(pawn_square)
+                    # Peão pode defender se está em coluna adjacente esquerda E em rank maior (atrás)
+                    if pawn_file == target_file - 1 and pawn_rank > target_rank:
+                        black_has_defender_behind = True
+                        break
+            
+            # Coluna direita (file+1)
+            if target_file < 7 and not black_has_defender_behind:
+                for pawn_square in self.board.pieces(chess.PAWN, chess.BLACK):
+                    pawn_file = chess.square_file(pawn_square)
+                    pawn_rank = chess.square_rank(pawn_square)
+                    # Peão pode defender se está em coluna adjacente direita E em rank maior (atrás)
+                    if pawn_file == target_file + 1 and pawn_rank > target_rank:
+                        black_has_defender_behind = True
+                        break
+            
+            if not black_has_defender_behind:
+                weak_squares[chess.BLACK].append(square)
+        
+        return weak_squares
+    
     def draw_board(self):
-        """Desenha o tabuleiro com ou sem visualização de controle"""
+        """Desenha o tabuleiro com ou sem visualização de controle e casas fracas"""
         control = {}
+        weak_squares = {chess.WHITE: [], chess.BLACK: []}
         
         if self.show_control:
             control = self.calculate_square_control()
+        
+        if self.show_weak_squares:
+            weak_squares = self.calculate_weak_squares()
         
         for row in range(DIMENSION):
             for col in range(DIMENSION):
                 square = chess.square(col, 7 - row)
                 is_light = (row + col) % 2 == 0
                 
-                # Escolhe cor da casa
+                # Escolhe cor da casa (sem prioridade de fraqueza - usa controle ou normal)
                 if self.show_control:
                     # Cor de controle (verde/vermelho/roxo/cinza)
                     white_attackers, black_attackers = control[square]
@@ -311,7 +398,14 @@ class ChessGame:
                 rect = pygame.Rect(col * SQ_SIZE, row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
                 pygame.draw.rect(self.screen, square_color, rect)
                 
-                # Adiciona uma borda sutil
+                # Adiciona borda para fraqueza permanente
+                if self.show_weak_squares:
+                    if square in weak_squares[chess.WHITE]:
+                        pygame.draw.rect(self.screen, WEAK_SQUARE_WHITE, rect, 3)  # Borda amarela para Brancas
+                    elif square in weak_squares[chess.BLACK]:
+                        pygame.draw.rect(self.screen, WEAK_SQUARE_BLACK, rect, 3)  # Borda laranja para Pretas
+                
+                # Adiciona uma borda sutil normal
                 if not self.show_control:
                     border_color = (200, 200, 200) if is_light else (100, 100, 100)
                     pygame.draw.rect(self.screen, border_color, rect, 1)
@@ -414,7 +508,8 @@ class ChessGame:
         """Desenha informações do jogo"""
         turn = "Brancas" if self.board.turn == chess.WHITE else "Pretas"
         control_status = "ON" if self.show_control else "OFF"
-        info_text = f"Turno: {turn} | Movimento: {self.board.fullmove_number} | Controle: {control_status} (C)"
+        weak_status = "ON" if self.show_weak_squares else "OFF"
+        info_text = f"Turno: {turn} | Movimento: {self.board.fullmove_number} | Controle: {control_status} (C) | Fraquezas: {weak_status} (W)"
         
         # Fundo para o texto
         pygame.draw.rect(self.screen, (0, 0, 0), (0, 0, WIDTH, 25))
@@ -675,6 +770,10 @@ class ChessGame:
                     # Alternar visualização de controle com 'C'
                     elif event.key == pygame.K_c:
                         self.show_control = not self.show_control
+                    
+                    # Alternar visualização de casas fracas com 'W'
+                    elif event.key == pygame.K_w:
+                        self.show_weak_squares = not self.show_weak_squares
             
             # Engine joga automaticamente quando é a vez dela (respeitando allow_engine_move e engine_enabled)
             if (self.mode == "pve" and self.board.turn == self.engine_side and 
