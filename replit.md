@@ -11,6 +11,7 @@ Ajudar jogadores a entender o conceito de controle de casas no xadrez - um aspec
 - **Jogar contra o computador**: Engine Stockfish configurável com diferentes níveis
 - **Escolha de cor**: Jogue com brancas ou pretas contra a engine
 - **Visualização de controle**: Casas em verde (você) e vermelho (adversário)
+- **Alternar visualização**: Pressione 'C' para ligar/desligar a coloração de controle
 - **Intensidade gradual**: Cor mais intensa = maior controle
 - **Jogo interativo**: Clique nas peças para movê-las
 - **Indicadores visuais**: Destaque de movimentos válidos

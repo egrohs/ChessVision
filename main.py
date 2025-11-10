@@ -84,7 +84,7 @@ def show_menu():
             "Pressione ENTER para confirmar",
             "",
             "Durante o jogo:",
-            "Z - Desfazer movimento | R - Reiniciar"
+            "C - Alternar visualização | Z - Desfazer | R - Reiniciar"
         ]
         
         y_offset = HEIGHT - 150
@@ -143,6 +143,9 @@ class ChessGame:
         self.engine = None
         self.engine_thinking = False
         
+        # Controle de visualização
+        self.show_control = True
+        
         # Inicializa engine se modo PvE
         if self.mode == "pve":
             try:
@@ -200,26 +203,38 @@ class ChessGame:
             return (50, 50, 50)
     
     def draw_board(self):
-        """Desenha o tabuleiro com visualização de controle"""
-        control = self.calculate_square_control()
+        """Desenha o tabuleiro com ou sem visualização de controle"""
+        control = {}
+        max_control = 1
         
-        # Encontra o valor máximo de controle para normalização
-        max_control = max(abs(v) for v in control.values()) if control.values() else 1
+        if self.show_control:
+            control = self.calculate_square_control()
+            max_control = max(abs(v) for v in control.values()) if control.values() else 1
         
         for row in range(DIMENSION):
             for col in range(DIMENSION):
                 square = chess.square(col, 7 - row)
+                is_light = (row + col) % 2 == 0
                 
-                # Cor de controle
-                control_color = self.get_square_color(control[square], max_control)
+                # Escolhe cor da casa
+                if self.show_control:
+                    # Cor de controle (verde/vermelho)
+                    square_color = self.get_square_color(control[square], max_control)
+                else:
+                    # Cor tradicional de xadrez
+                    square_color = WHITE if is_light else BLACK
                 
-                # Desenha a casa com cor de controle
+                # Desenha a casa
                 rect = pygame.Rect(col * SQ_SIZE, row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
-                pygame.draw.rect(self.screen, control_color, rect)
+                pygame.draw.rect(self.screen, square_color, rect)
                 
-                # Adiciona uma borda para distinguir as casas
-                border_color = (100, 100, 100) if (row + col) % 2 == 0 else (80, 80, 80)
-                pygame.draw.rect(self.screen, border_color, rect, 1)
+                # Adiciona uma borda sutil
+                if not self.show_control:
+                    border_color = (200, 200, 200) if is_light else (100, 100, 100)
+                    pygame.draw.rect(self.screen, border_color, rect, 1)
+                else:
+                    border_color = (100, 100, 100) if is_light else (80, 80, 80)
+                    pygame.draw.rect(self.screen, border_color, rect, 1)
                 
                 # Destaca casa selecionada
                 if self.selected_square == square:
@@ -253,7 +268,8 @@ class ChessGame:
     def draw_info(self):
         """Desenha informações do jogo"""
         turn = "Brancas" if self.board.turn == chess.WHITE else "Pretas"
-        info_text = f"Turno: {turn} | Movimento: {self.board.fullmove_number}"
+        control_status = "ON" if self.show_control else "OFF"
+        info_text = f"Turno: {turn} | Movimento: {self.board.fullmove_number} | Controle: {control_status} (C)"
         
         # Fundo para o texto
         pygame.draw.rect(self.screen, (0, 0, 0), (0, 0, WIDTH, 25))
@@ -367,6 +383,10 @@ class ChessGame:
                         self.board.reset()
                         self.selected_square = None
                         self.valid_moves = []
+                    
+                    # Alternar visualização de controle com 'C'
+                    elif event.key == pygame.K_c:
+                        self.show_control = not self.show_control
             
             # Engine joga automaticamente quando é a vez dela
             if self.mode == "pve" and self.board.turn == self.engine_side and not self.board.is_game_over():
