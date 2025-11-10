@@ -31,6 +31,8 @@ SELECTED = (246, 246, 130)
 GREEN_BASE = (0, 255, 0)
 RED_BASE = (255, 0, 0)
 NEUTRAL = (128, 128, 128)
+NO_CONTROL = (60, 60, 60)  # Nenhum jogador ameaça
+BALANCED_CONTROL = (150, 100, 150)  # Ambos ameaçam igualmente
 
 # Espessura do contorno das peças (em pixels)
 OUTLINE_THICKNESS = 2
@@ -165,6 +167,8 @@ class ChessGame:
         # Modo de jogo: "pvp" (player vs player) ou "pve" (player vs engine)
         self.mode = mode
         self.engine_side = engine_side
+        # Salvar o modo original para restaurar quando reabilitar engine
+        self.original_mode = mode
         self.engine = None
         self.engine_thinking = False
         
@@ -211,21 +215,27 @@ class ChessGame:
         """
         Retorna a cor da casa baseada no controle.
         Verde para controle das brancas, vermelho para controle das pretas.
+        Roxo para controle balanceado (ambos ameaçam), cinza escuro para nenhum controle.
         """
-        if max_control == 0:
-            return NEUTRAL
+        # Se ninguém controla essa casa
+        if control_value == 0:
+            return NO_CONTROL
         
+        # Se brancas controlam
         if control_value > 0:
-            # Brancas controlam - tons de verde
-            intensity = min(255, int(255 * (control_value / max_control)))
+            if max_control == 0:
+                intensity = 0
+            else:
+                intensity = min(255, int(255 * (control_value / max_control)))
             return (0, intensity, 0)
-        elif control_value < 0:
-            # Pretas controlam - tons de vermelho
-            intensity = min(255, int(255 * (abs(control_value) / max_control)))
+        
+        # Se pretas controlam
+        else:  # control_value < 0
+            if max_control == 0:
+                intensity = 0
+            else:
+                intensity = min(255, int(255 * (abs(control_value) / max_control)))
             return (intensity, 0, 0)
-        else:
-            # Controle neutro
-            return (50, 50, 50)
     
     def draw_board(self):
         """Desenha o tabuleiro com ou sem visualização de controle"""
@@ -419,14 +429,17 @@ class ChessGame:
             self.redo_move()
             self.selected_square = None
             self.valid_moves = []
-        elif ENGINE_BUTTON_RECT.collidepoint(mouse_pos) and self.mode == "pve":
+        elif ENGINE_BUTTON_RECT.collidepoint(mouse_pos) and self.original_mode == "pve":
             # Toggle engine on/off
             self.engine_enabled = not self.engine_enabled
-            # Se desabilitar engine, bloqueia que ela jogue
+            # Se desabilitar engine, muda para PvP
             if not self.engine_enabled:
+                self.mode = "pvp"
                 self.allow_engine_move = False
             else:
-                # Se reabilitar engine e for seu turno, permite jogar imediatamente
+                # Se reabilitar engine, volta ao modo original (PvE)
+                self.mode = self.original_mode
+                # Se for seu turno, permite jogar imediatamente
                 self.allow_engine_move = True
     
     def make_engine_move(self):
