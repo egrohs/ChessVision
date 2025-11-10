@@ -139,6 +139,8 @@ class ChessGame:
         self.board = chess.Board()
         self.selected_square = None
         self.valid_moves = []
+        # Último movimento (chess.Move) — usado para realce
+        self.last_move = None
         
         # Modo de jogo: "pvp" (player vs player) ou "pve" (player vs engine)
         self.mode = mode
@@ -249,6 +251,35 @@ class ChessGame:
                                      (col * SQ_SIZE + SQ_SIZE // 2, 
                                       row * SQ_SIZE + SQ_SIZE // 2), 
                                      SQ_SIZE // 6)
+
+        # Realça o último movimento (origem -> destino)
+        if hasattr(self, 'last_move') and self.last_move is not None:
+            try:
+                from_sq = self.last_move.from_square
+                to_sq = self.last_move.to_square
+
+                from_col = chess.square_file(from_sq)
+                from_row = 7 - chess.square_rank(from_sq)
+                to_col = chess.square_file(to_sq)
+                to_row = 7 - chess.square_rank(to_sq)
+
+                from_center = (from_col * SQ_SIZE + SQ_SIZE // 2, from_row * SQ_SIZE + SQ_SIZE // 2)
+                to_center = (to_col * SQ_SIZE + SQ_SIZE // 2, to_row * SQ_SIZE + SQ_SIZE // 2)
+
+                # Overlay translúcido nas casas de origem e destino
+                overlay_color = (*SELECTED, 100) if len(SELECTED) == 3 else SELECTED
+                overlay_surf = pygame.Surface((SQ_SIZE, SQ_SIZE), pygame.SRCALPHA)
+                overlay_surf.fill(overlay_color)
+                self.screen.blit(overlay_surf, (from_col * SQ_SIZE, from_row * SQ_SIZE))
+                self.screen.blit(overlay_surf, (to_col * SQ_SIZE, to_row * SQ_SIZE))
+
+                # Linha que conecta origem -> destino
+                pygame.draw.line(self.screen, SELECTED, from_center, to_center, 6)
+                # Marca o destino com um círculo por cima
+                pygame.draw.circle(self.screen, SELECTED, to_center, SQ_SIZE // 8)
+            except Exception:
+                # Segurança: se qualquer coisa falhar, não quebremos a renderização
+                pass
     
     def draw_pieces(self):
         """Desenha as peças no tabuleiro"""
@@ -325,6 +356,8 @@ class ChessGame:
             result = self.engine.play(self.board, chess.engine.Limit(time=0.5))
             if result.move:
                 self.board.push(result.move)
+                # Atualiza o último movimento
+                self.last_move = result.move
             self.engine_thinking = False
     
     def handle_click(self, square):
@@ -354,6 +387,8 @@ class ChessGame:
             # Tenta fazer o movimento
             if move in self.board.legal_moves:
                 self.board.push(move)
+                # Armazena o último movimento para realce
+                self.last_move = move
                 self.selected_square = None
                 self.valid_moves = []
             else:
@@ -396,12 +431,19 @@ class ChessGame:
                             self.board.pop()
                         self.selected_square = None
                         self.valid_moves = []
+                        # Atualiza last_move para o último movimento existente (ou None)
+                        if len(self.board.move_stack) > 0:
+                            self.last_move = self.board.move_stack[-1]
+                        else:
+                            self.last_move = None
                     
                     # Reiniciar com 'R'
                     elif event.key == pygame.K_r:
                         self.board.reset()
                         self.selected_square = None
                         self.valid_moves = []
+                        # Limpa realce do último movimento
+                        self.last_move = None
                     
                     # Alternar visualização de controle com 'C'
                     elif event.key == pygame.K_c:
