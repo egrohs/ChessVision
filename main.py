@@ -26,6 +26,7 @@ WHITE = (240, 217, 181)
 BLACK = (181, 136, 99)
 HIGHLIGHT = (186, 202, 68)
 SELECTED = (246, 246, 130)
+CHECK_COLOR = (255, 100, 100)  # Vermelho para aviso de check
 
 # Cores para controle
 GREEN_BASE = (0, 255, 0)
@@ -211,6 +212,57 @@ class ChessGame:
             
         return control
     
+    def calculate_square_mobility(self, square):
+        """
+        Calcula a mobilidade de uma casa: quantos movimentos uma rainha + cavalo teriam se estivessem ali.
+        Conta movimentos em 8 direções de rainha (até peça bloquear) + 8 movimentos de cavalo.
+        """
+        mobility = 0
+        col = chess.square_file(square)
+        row = chess.square_rank(square)
+        
+        # Movimentos de rainha: 8 direções (linhas, colunas, diagonais)
+        directions = [
+            (0, 1),   # cima
+            (0, -1),  # baixo
+            (1, 0),   # direita
+            (-1, 0),  # esquerda
+            (1, 1),   # diagonal superior direita
+            (1, -1),  # diagonal inferior direita
+            (-1, 1),  # diagonal superior esquerda
+            (-1, -1)  # diagonal inferior esquerda
+        ]
+        
+        for dx, dy in directions:
+            # Vai em cada direção até encontrar uma peça ou sair do tabuleiro
+            x, y = col + dx, row + dy
+            while 0 <= x < 8 and 0 <= y < 8:
+                # Converte coordenadas de volta para square
+                target_square = chess.square(x, y)
+                # Se há peça, para de contar nesta direção
+                if self.board.piece_at(target_square) is not None:
+                    break
+                # Senão, conta este movimento
+                mobility += 1
+                x += dx
+                y += dy
+        
+        # Movimentos de cavalo: 8 possíveis (L-shape)
+        knight_moves = [
+            (2, 1), (2, -1), (-2, 1), (-2, -1),
+            (1, 2), (1, -2), (-1, 2), (-1, -2)
+        ]
+        
+        for dx, dy in knight_moves:
+            x, y = col + dx, row + dy
+            if 0 <= x < 8 and 0 <= y < 8:
+                # Verifica se a casa destino está vazia
+                target_square = chess.square(x, y)
+                if self.board.piece_at(target_square) is None:
+                    mobility += 1
+        
+        return mobility
+    
     def get_square_color(self, control_value, max_control):
         """
         Retorna a cor da casa baseada no controle.
@@ -281,6 +333,13 @@ class ChessGame:
                                      (col * SQ_SIZE + SQ_SIZE // 2, 
                                       row * SQ_SIZE + SQ_SIZE // 2), 
                                      SQ_SIZE // 6)
+                
+                # Exibe mobilidade da casa (canto inferior direito)
+                mobility = self.calculate_square_mobility(square)
+                mobility_text = self.info_font.render(str(mobility), True, (200, 200, 200))
+                mobility_rect = mobility_text.get_rect(bottomright=(col * SQ_SIZE + SQ_SIZE - 3, 
+                                                                     row * SQ_SIZE + SQ_SIZE - 3))
+                self.screen.blit(mobility_text, mobility_rect)
 
         # Realça o último movimento (origem -> destino)
         if hasattr(self, 'last_move') and self.last_move is not None:
@@ -310,6 +369,16 @@ class ChessGame:
             except Exception:
                 # Segurança: se qualquer coisa falhar, não quebremos a renderização
                 pass
+        
+        # Destaca o rei em xeque com borda vermelha
+        if self.board.is_check():
+            king_square = self.board.king(self.board.turn)
+            if king_square is not None:
+                king_col = chess.square_file(king_square)
+                king_row = 7 - chess.square_rank(king_square)
+                king_rect = pygame.Rect(king_col * SQ_SIZE, king_row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
+                # Desenha borda grossa vermelha
+                pygame.draw.rect(self.screen, CHECK_COLOR, king_rect, 8)
     
     def draw_pieces(self):
         """Desenha as peças no tabuleiro"""
@@ -384,7 +453,8 @@ class ChessGame:
         # Verifica se mouse está sobre cada botão para hover effect
         back_hover = BACK_BUTTON_RECT.collidepoint(mouse_pos)
         forward_hover = FORWARD_BUTTON_RECT.collidepoint(mouse_pos)
-        engine_hover = ENGINE_BUTTON_RECT.collidepoint(mouse_pos) if self.mode == "pve" else False
+        # Botão de engine aparece se foi originalmente PvE (mesmo que agora seja PvP)
+        engine_hover = ENGINE_BUTTON_RECT.collidepoint(mouse_pos) if self.original_mode == "pve" else False
         
         # Desenha botão voltar
         back_color = BUTTON_HOVER_COLOR if back_hover else BUTTON_COLOR
@@ -402,8 +472,8 @@ class ChessGame:
         forward_rect = forward_text.get_rect(center=FORWARD_BUTTON_RECT.center)
         self.screen.blit(forward_text, forward_rect)
         
-        # Desenha botão de engine (apenas em PvE)
-        if self.mode == "pve":
+        # Desenha botão de engine (se foi originalmente PvE, mesmo em PvP agora)
+        if self.original_mode == "pve":
             # Cor varia se engine está habilitada ou desabilitada
             if self.engine_enabled:
                 engine_color = BUTTON_HOVER_COLOR if engine_hover else BUTTON_COLOR
