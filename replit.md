@@ -7,11 +7,14 @@ Programa de xadrez interativo em Python que visualiza o controle territorial do 
 Ajudar jogadores a entender o conceito de controle de casas no xadrez - um aspecto fundamental da estratégia posicional. A cada lance, você pode ver visualmente quais áreas do tabuleiro você domina e quais o adversário controla.
 
 ## Funcionalidades
+- **Menu inicial**: Escolha entre Jogador vs Jogador ou Jogador vs Engine (Stockfish)
+- **Jogar contra o computador**: Engine Stockfish configurável com diferentes níveis
+- **Escolha de cor**: Jogue com brancas ou pretas contra a engine
 - **Visualização de controle**: Casas em verde (você) e vermelho (adversário)
 - **Intensidade gradual**: Cor mais intensa = maior controle
 - **Jogo interativo**: Clique nas peças para movê-las
 - **Indicadores visuais**: Destaque de movimentos válidos
-- **Desfazer movimento**: Pressione 'Z' para voltar
+- **Desfazer movimento**: Pressione 'Z' para voltar (desfaz jogador + engine no modo PvE)
 - **Reiniciar jogo**: Pressione 'R' para recomeçar
 - **Informações do jogo**: Turno atual, número do movimento, status (xeque, xeque-mate)
 
@@ -26,6 +29,7 @@ Ajudar jogadores a entender o conceito de controle de casas no xadrez - um aspec
 - **Python 3.11**: Linguagem principal
 - **python-chess**: Motor de xadrez e regras do jogo
 - **pygame**: Interface gráfica e renderização
+- **Stockfish 17**: Engine de xadrez para modo PvE
 
 ## Estrutura do Projeto
 ```
@@ -52,3 +56,7 @@ Para cada casa do tabuleiro:
   - Interface gráfica com pygame
   - Movimentação por clique
   - Visualização com gradiente de cores
+  - Menu inicial para escolha de modo
+  - Integração com engine Stockfish
+  - Modo Player vs Engine (PvE) com escolha de cor
+  - Ajuste automático de desfazer no modo PvE
