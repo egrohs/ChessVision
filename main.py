@@ -60,6 +60,25 @@ PIECE_SYMBOLS = {
     'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚'
 }
 
+# Valores padrão das peças de xadrez (para cálculo de controle)
+PIECE_VALUES = {
+    chess.QUEEN: 9,
+    chess.ROOK: 5,
+    chess.BISHOP: 3.5,
+    chess.KNIGHT: 3,
+    chess.PAWN: 1,
+    chess.KING: float('inf')
+}
+
+# Valores de defesa das peças de xadrez (10 - valor de ataque)
+PIECE_DEFENSE_VALUES = {
+    chess.QUEEN: 1,      # 10 - 9
+    chess.ROOK: 5,       # 10 - 5
+    chess.BISHOP: 6.5,   # 10 - 3.5
+    chess.KNIGHT: 7,     # 10 - 3
+    chess.PAWN: 9,       # 10 - 1
+    chess.KING: 0.1        # Rei não defende casas da mesma forma
+}
 
 def show_menu():
     """Exibe menu inicial e retorna a escolha do jogador"""
@@ -196,20 +215,31 @@ class ChessGame:
         
     def calculate_square_control(self):
         """
-        Calcula o controle de cada casa do tabuleiro.
-        Retorna um dicionário com tupla (white_attackers, black_attackers)
+        Calcula o controle de cada casa do tabuleiro baseado no valor das peças.
+        Retorna um dicionário com tupla (white_attack, white_defense, black_attack, black_defense)
         """
         control = {}
         
         for square in chess.SQUARES:
-            # Conta quantas peças brancas atacam esta casa
-            white_attackers = len(self.board.attackers(chess.WHITE, square))
+            white_attack = 0.0
+            black_attack = 0.0
+            white_defense = 0.0
+            black_defense = 0.0
             
-            # Conta quantas peças pretas atacam esta casa
-            black_attackers = len(self.board.attackers(chess.BLACK, square))
+            # Soma o valor de ataque de todas as peças brancas que atacam esta casa
+            for attacker_square in self.board.attackers(chess.WHITE, square):
+                piece = self.board.piece_at(attacker_square)
+                white_attack += PIECE_VALUES.get(piece.piece_type, 0)
+                white_defense += PIECE_DEFENSE_VALUES.get(piece.piece_type, 0)
             
-            # Armazena ambas as contagens (não apenas a diferença)
-            control[square] = (white_attackers, black_attackers)
+            # Soma o valor de ataque de todas as peças pretas que atacam esta casa
+            for attacker_square in self.board.attackers(chess.BLACK, square):
+                piece = self.board.piece_at(attacker_square)
+                black_attack += PIECE_VALUES.get(piece.piece_type, 0)
+                black_defense += PIECE_DEFENSE_VALUES.get(piece.piece_type, 0)
+            
+            # Armazena: (white_attack, white_defense, black_attack, black_defense)
+            control[square] = (white_attack, white_defense, black_attack, black_defense)
             
         return control
     
@@ -264,30 +294,33 @@ class ChessGame:
         
         return mobility
     
-    def get_square_color(self, white_attackers, black_attackers):
+    def get_square_color(self, white_attack, white_defense, black_attack, black_defense):
         """
-        Retorna a cor da casa baseada no controle.
+        Retorna a cor da casa baseada no controle de valor das peças com considerar defesa.
+        A intensidade é baseada na DEFESA (não no ataque).
         - Cinza escuro: ninguém controla
-        - Verde: apenas brancas controlam
-        - Vermelho: apenas pretas controlam
+        - Verde: apenas brancas controlam (intensidade = defesa das peças brancas)
+        - Vermelho: apenas pretas controlam (intensidade = defesa das peças pretas)
         - Roxo: ambos controlam (controle balanceado)
         """
         # Se ninguém controla
-        if white_attackers == 0 and black_attackers == 0:
+        if white_attack == 0 and black_attack == 0:
             return NO_CONTROL
         
         # Se ambos controlam (controle balanceado/dividido)
-        if white_attackers > 0 and black_attackers > 0:
+        if white_attack > 0 and black_attack > 0:
             return BALANCED_CONTROL
         
-        # Se apenas brancas controlam
-        if white_attackers > 0:
-            intensity = min(255, white_attackers * 50)
+        # Se apenas brancas controlam - intensidade baseada na defesa branca
+        if white_attack > 0:
+            # Escala defesa de 0 a 255 (máximo defesa é ~9 para peão)
+            intensity = min(255, int(white_defense * 28))
             return (0, intensity, 0)
         
-        # Se apenas pretas controlam
+        # Se apenas pretas controlam - intensidade baseada na defesa preta
         else:
-            intensity = min(255, black_attackers * 50)
+            # Escala defesa de 0 a 255 (máximo defesa é ~9 para peão)
+            intensity = min(255, int(black_defense * 28))
             return (intensity, 0, 0)
     
     def calculate_weak_squares(self):
@@ -388,8 +421,8 @@ class ChessGame:
                 # Escolhe cor da casa (sem prioridade de fraqueza - usa controle ou normal)
                 if self.show_control:
                     # Cor de controle (verde/vermelho/roxo/cinza)
-                    white_attackers, black_attackers = control[square]
-                    square_color = self.get_square_color(white_attackers, black_attackers)
+                    white_attack, white_defense, black_attack, black_defense = control[square]
+                    square_color = self.get_square_color(white_attack, white_defense, black_attack, black_defense)
                 else:
                     # Cor tradicional de xadrez
                     square_color = WHITE if is_light else BLACK
