@@ -42,9 +42,9 @@ class ChessGame:
         self.selected_square = None
         self.valid_moves = []
         
-        # Fonte para peças
-        self.piece_font = pygame.font.SysFont("segoe ui symbol", 64)
-        self.info_font = pygame.font.SysFont("arial", 16)
+        # Fonte para peças (DejaVu Sans suporta símbolos Unicode de xadrez)
+        self.piece_font = pygame.font.SysFont("dejavusans", 64)
+        self.info_font = pygame.font.SysFont("dejavusans", 16)
         
     def calculate_square_control(self):
         """
