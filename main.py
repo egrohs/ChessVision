@@ -193,22 +193,19 @@ class ChessGame:
     def calculate_square_control(self):
         """
         Calcula o controle de cada casa do tabuleiro.
-        Retorna um dicionário com a diferença de controle (positivo = brancas, negativo = pretas)
+        Retorna um dicionário com tupla (white_attackers, black_attackers)
         """
         control = {}
         
         for square in chess.SQUARES:
-            white_attackers = 0
-            black_attackers = 0
-            
             # Conta quantas peças brancas atacam esta casa
             white_attackers = len(self.board.attackers(chess.WHITE, square))
             
             # Conta quantas peças pretas atacam esta casa
             black_attackers = len(self.board.attackers(chess.BLACK, square))
             
-            # Diferença de controle (positivo = brancas controlam mais, negativo = pretas)
-            control[square] = white_attackers - black_attackers
+            # Armazena ambas as contagens (não apenas a diferença)
+            control[square] = (white_attackers, black_attackers)
             
         return control
     
@@ -263,40 +260,38 @@ class ChessGame:
         
         return mobility
     
-    def get_square_color(self, control_value, max_control):
+    def get_square_color(self, white_attackers, black_attackers):
         """
         Retorna a cor da casa baseada no controle.
-        Verde para controle das brancas, vermelho para controle das pretas.
-        Roxo para controle balanceado (ambos ameaçam), cinza escuro para nenhum controle.
+        - Cinza escuro: ninguém controla
+        - Verde: apenas brancas controlam
+        - Vermelho: apenas pretas controlam
+        - Roxo: ambos controlam (controle balanceado)
         """
-        # Se ninguém controla essa casa
-        if control_value == 0:
+        # Se ninguém controla
+        if white_attackers == 0 and black_attackers == 0:
             return NO_CONTROL
         
-        # Se brancas controlam
-        if control_value > 0:
-            if max_control == 0:
-                intensity = 0
-            else:
-                intensity = min(255, int(255 * (control_value / max_control)))
+        # Se ambos controlam (controle balanceado/dividido)
+        if white_attackers > 0 and black_attackers > 0:
+            return BALANCED_CONTROL
+        
+        # Se apenas brancas controlam
+        if white_attackers > 0:
+            intensity = min(255, white_attackers * 50)
             return (0, intensity, 0)
         
-        # Se pretas controlam
-        else:  # control_value < 0
-            if max_control == 0:
-                intensity = 0
-            else:
-                intensity = min(255, int(255 * (abs(control_value) / max_control)))
+        # Se apenas pretas controlam
+        else:
+            intensity = min(255, black_attackers * 50)
             return (intensity, 0, 0)
     
     def draw_board(self):
         """Desenha o tabuleiro com ou sem visualização de controle"""
         control = {}
-        max_control = 1
         
         if self.show_control:
             control = self.calculate_square_control()
-            max_control = max(abs(v) for v in control.values()) if control.values() else 1
         
         for row in range(DIMENSION):
             for col in range(DIMENSION):
@@ -305,8 +300,9 @@ class ChessGame:
                 
                 # Escolhe cor da casa
                 if self.show_control:
-                    # Cor de controle (verde/vermelho)
-                    square_color = self.get_square_color(control[square], max_control)
+                    # Cor de controle (verde/vermelho/roxo/cinza)
+                    white_attackers, black_attackers = control[square]
+                    square_color = self.get_square_color(white_attackers, black_attackers)
                 else:
                     # Cor tradicional de xadrez
                     square_color = WHITE if is_light else BLACK
