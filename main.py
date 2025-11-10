@@ -17,7 +17,7 @@ SQ_SIZE = WIDTH // DIMENSION
 FPS = 60
 
 # Caminho do Stockfish
-STOCKFISH_PATH = "/nix/store/l4y0zjkvmnbqwz8grmb34d280n599i75-stockfish-17/bin/stockfish"
+STOCKFISH_PATH = "stockfish-windows-x86-64-avx2.exe" # "/nix/store/l4y0zjkvmnbqwz8grmb34d280n599i75-stockfish-17/bin/stockfish"
 if not os.path.exists(STOCKFISH_PATH):
     STOCKFISH_PATH = "stockfish"
 
@@ -31,6 +31,9 @@ SELECTED = (246, 246, 130)
 GREEN_BASE = (0, 255, 0)
 RED_BASE = (255, 0, 0)
 NEUTRAL = (128, 128, 128)
+
+# Espessura do contorno das peças (em pixels)
+OUTLINE_THICKNESS = 2
 
 # Símbolos Unicode para peças
 PIECE_SYMBOLS = {
@@ -150,7 +153,7 @@ class ChessGame:
         if self.mode == "pve":
             try:
                 self.engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
-                self.engine.configure({"Skill Level": 5})
+                self.engine.configure({"Skill Level": 3})
             except Exception as e:
                 print(f"Erro ao inicializar Stockfish: {e}")
                 self.mode = "pvp"
@@ -256,13 +259,29 @@ class ChessGame:
                 row = 7 - chess.square_rank(square)
                 
                 symbol = PIECE_SYMBOLS.get(piece.symbol(), piece.symbol())
+                # Cor principal da peça (branco ou preto)
                 color = (255, 255, 255) if piece.color == chess.WHITE else (0, 0, 0)
-                
+
+                # Cor do contorno: oposta à cor da peça
+                outline_color = (0, 0, 0) if piece.color == chess.WHITE else (255, 255, 255)
+
+                # Surface do contorno (mesmo símbolo, cor oposta)
+                outline_surf = self.piece_font.render(symbol, True, outline_color)
+                outline_rect = outline_surf.get_rect()
+
+                # Desenha múltiplas cópias deslocadas para simular um contorno
+                t = OUTLINE_THICKNESS
+                offsets = [(-t, 0), (t, 0), (0, -t), (0, t), (-t, -t), (-t, t), (t, -t), (t, t)]
+                for dx, dy in offsets:
+                    outline_rect.center = (col * SQ_SIZE + SQ_SIZE // 2 + dx,
+                                           row * SQ_SIZE + SQ_SIZE // 2 + dy)
+                    self.screen.blit(outline_surf, outline_rect)
+
+                # Desenha a peça principal por cima do contorno
                 text_surface = self.piece_font.render(symbol, True, color)
                 text_rect = text_surface.get_rect()
-                text_rect.center = (col * SQ_SIZE + SQ_SIZE // 2, 
+                text_rect.center = (col * SQ_SIZE + SQ_SIZE // 2,
                                   row * SQ_SIZE + SQ_SIZE // 2)
-                
                 self.screen.blit(text_surface, text_rect)
     
     def draw_info(self):
