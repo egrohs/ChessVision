@@ -230,6 +230,25 @@ class ChessGame:
         self.piece_font = pygame.font.SysFont("dejavusans", 64)
         self.info_font = pygame.font.SysFont("dejavusans", 16)
         self.menu_font = pygame.font.SysFont("dejavusans", 24)
+        # Tenta carregar imagens das peças da pasta 'res' (fallback para desenho via fonte se não encontrar)
+        self.piece_images = {}
+        try:
+            res_dir = os.path.join(os.path.dirname(__file__), 'res')
+            for sym in PIECE_SYMBOLS.keys():
+                # sym é 'P','N',... ou lowercase for black; filename uses lowercase piece letter + 'lt' (light) or 'dt' (dark)
+                piece_letter = sym.lower()
+                color_tag = 'lt' if sym.isupper() else 'dt'
+                fname = f'Chess_{piece_letter}{color_tag}45.svg.png'
+                fpath = os.path.join(res_dir, fname)
+                if os.path.exists(fpath):
+                    img = pygame.image.load(fpath).convert_alpha()
+                    # escala para caber na casa (um pouco menor que SQ_SIZE para margem)
+                    target = max(1, SQ_SIZE - 8)
+                    img = pygame.transform.smoothscale(img, (target, target))
+                    self.piece_images[sym] = img
+        except Exception:
+            # Se qualquer problema, não impedimos a inicialização — fallback será usado
+            self.piece_images = {}
         
     def calculate_square_control(self):
         """
@@ -331,14 +350,14 @@ class ChessGame:
         
         # Se apenas brancas controlam - intensidade baseada na defesa branca
         if white_attack > 0:
-            # Escala defesa de 0 a 255 (máximo defesa é ~9 para peão)
-            intensity = min(255, int(white_defense * 28))
+            # Escala defesa de 0 a 255 (máximo defesa é ~9 para peão), com mínimo de 120 para claridade
+            intensity = min(255, max(120, int(white_defense * 28)))
             return (0, intensity, 0)
         
         # Se apenas pretas controlam - intensidade baseada na defesa preta
         else:
-            # Escala defesa de 0 a 255 (máximo defesa é ~9 para peão)
-            intensity = min(255, int(black_defense * 28))
+            # Escala defesa de 0 a 255 (máximo defesa é ~9 para peão), com mínimo de 120 para claridade
+            intensity = min(255, max(120, int(black_defense * 28)))
             return (intensity, 0, 0)
     
     def calculate_weak_squares(self):
@@ -437,10 +456,35 @@ class ChessGame:
                 is_light = (row + col) % 2 == 0
                 
                 # Escolhe cor da casa (sem prioridade de fraqueza - usa controle ou normal)
+                has_balanced_control = False
                 if self.show_control:
                     # Cor de controle (verde/vermelho/roxo/cinza)
                     white_attack, white_defense, black_attack, black_defense = control[square]
-                    square_color = self.get_square_color(white_attack, white_defense, black_attack, black_defense)
+                    
+                    # Verifica se ambos têm controle para depois desenhar X roxo
+                    if white_attack > 0 and black_attack > 0:
+                        has_balanced_control = True
+                        # Fundo: cores baseadas em quem tem MAIS defesa (PIECE_DEFENSE_VALUES)
+                        # Intensidade é proporcional à diferença de defesa
+                        if white_defense > black_defense:
+                            # Brancas têm mais defesa
+                            diff = white_defense - black_defense
+                            # Escala a diferença para intensidade (0-135 para variar de 120 a 255)
+                            intensity_offset = min(135, int(diff * 14))
+                            intensity = 120 + intensity_offset
+                            square_color = (0, intensity, 0)
+                        elif black_defense > white_defense:
+                            # Pretas têm mais defesa
+                            diff = black_defense - white_defense
+                            # Escala a diferença para intensidade (0-135 para variar de 120 a 255)
+                            intensity_offset = min(135, int(diff * 14))
+                            intensity = 120 + intensity_offset
+                            square_color = (intensity, 0, 0)
+                        else:
+                            # Empate: fundo cinza (NO_CONTROL)
+                            square_color = NO_CONTROL
+                    else:
+                        square_color = self.get_square_color(white_attack, white_defense, black_attack, black_defense)
                 else:
                     # Cor tradicional de xadrez
                     square_color = WHITE if is_light else BLACK
@@ -448,6 +492,20 @@ class ChessGame:
                 # Desenha a casa
                 rect = pygame.Rect(SIDE_MENU_WIDTH + col * SQ_SIZE, TOP_MENU_HEIGHT + row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
                 pygame.draw.rect(self.screen, square_color, rect)
+                
+                # Desenha X roxo se ambos têm controle
+                if has_balanced_control and self.show_control:
+                    center_x = SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE // 2
+                    center_y = TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE // 2
+                    # Tamanho do X (diagonal da casa)
+                    half_diag = int(SQ_SIZE * 0.35)
+                    # Desenha as duas linhas do X
+                    pygame.draw.line(self.screen, BALANCED_CONTROL, 
+                                   (center_x - half_diag, center_y - half_diag),
+                                   (center_x + half_diag, center_y + half_diag), 4)
+                    pygame.draw.line(self.screen, BALANCED_CONTROL,
+                                   (center_x + half_diag, center_y - half_diag),
+                                   (center_x - half_diag, center_y + half_diag), 4)
                 
                 # Adiciona borda para fraqueza permanente
                 if self.show_weak_squares:
@@ -525,34 +583,24 @@ class ChessGame:
         """Desenha as peças no tabuleiro"""
         for square in chess.SQUARES:
             piece = self.board.piece_at(square)
-            if piece:
-                col = chess.square_file(square)
-                row = 7 - chess.square_rank(square)
-                
+            if not piece:
+                continue
+            col = chess.square_file(square)
+            row = 7 - chess.square_rank(square)
+            sym = piece.symbol()
+            # Tenta desenhar imagem da peça se disponível
+            img = self.piece_images.get(sym)
+            center = (SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE // 2,
+                      TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE // 2)
+            if img:
+                img_rect = img.get_rect(center=center)
+                self.screen.blit(img, img_rect)
+            else:
+                # Fallback: desenha via fonte SEM contorno (removido por solicitação)
                 symbol = PIECE_SYMBOLS.get(piece.symbol(), piece.symbol())
-                # Cor principal da peça (branco ou preto)
                 color = (255, 255, 255) if piece.color == chess.WHITE else (0, 0, 0)
-
-                # Cor do contorno: oposta à cor da peça
-                outline_color = (0, 0, 0) if piece.color == chess.WHITE else (255, 255, 255)
-
-                # Surface do contorno (mesmo símbolo, cor oposta)
-                outline_surf = self.piece_font.render(symbol, True, outline_color)
-                outline_rect = outline_surf.get_rect()
-
-                # Desenha múltiplas cópias deslocadas para simular um contorno
-                t = OUTLINE_THICKNESS
-                offsets = [(-t, 0), (t, 0), (0, -t), (0, t), (-t, -t), (-t, t), (t, -t), (t, t)]
-                for dx, dy in offsets:
-                    outline_rect.center = (SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE // 2 + dx,
-                                           TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE // 2 + dy)
-                    self.screen.blit(outline_surf, outline_rect)
-
-                # Desenha a peça principal por cima do contorno
                 text_surface = self.piece_font.render(symbol, True, color)
-                text_rect = text_surface.get_rect()
-                text_rect.center = (SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE // 2,
-                                  TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE // 2)
+                text_rect = text_surface.get_rect(center=center)
                 self.screen.blit(text_surface, text_rect)
     
     def draw_info(self):
