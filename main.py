@@ -13,15 +13,19 @@ import os
 # Configurações
 # Espaço reservado no topo para textos/informações (não sobreporá o tabuleiro)
 TOP_MENU_HEIGHT = 40
-# Altura total da janela (inclui TOP_MENU_HEIGHT)
-HEIGHT = 800 + TOP_MENU_HEIGHT
+# Espaço reservado na base para letras das colunas (a-h)
+BOTTOM_LABEL_HEIGHT = 40
+# Altura total da janela (inclui TOP_MENU_HEIGHT e BOTTOM_LABEL_HEIGHT)
+HEIGHT = 800 + TOP_MENU_HEIGHT + BOTTOM_LABEL_HEIGHT
 # Largura do menu lateral onde ficam os botões
 SIDE_MENU_WIDTH = 200
+# Espaço reservado à direita para números das linhas (1-8)
+RIGHT_LABEL_WIDTH = 40
 # Tamanho em pixels do tabuleiro (lado) - usamos a altura como referência
-# O tabuleiro ocupa a área abaixo do topo: BOARD_SIZE = HEIGHT - TOP_MENU_HEIGHT
-BOARD_SIZE = HEIGHT - TOP_MENU_HEIGHT
-# Largura total da janela = menu lateral + tabuleiro
-WIDTH = SIDE_MENU_WIDTH + BOARD_SIZE
+# O tabuleiro ocupa a área: entre TOP_MENU_HEIGHT e (HEIGHT - BOTTOM_LABEL_HEIGHT)
+BOARD_SIZE = HEIGHT - TOP_MENU_HEIGHT - BOTTOM_LABEL_HEIGHT
+# Largura total da janela = menu lateral + tabuleiro + números à direita
+WIDTH = SIDE_MENU_WIDTH + BOARD_SIZE + RIGHT_LABEL_WIDTH
 DIMENSION = 8
 # Tamanho de cada casa
 SQ_SIZE = BOARD_SIZE // DIMENSION
@@ -578,6 +582,41 @@ class ChessGame:
                 king_rect = pygame.Rect(SIDE_MENU_WIDTH + king_col * SQ_SIZE, TOP_MENU_HEIGHT + king_row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
                 # Desenha borda grossa vermelha
                 pygame.draw.rect(self.screen, CHECK_COLOR, king_rect, 8)
+        
+        # Desenha bordas com coordenadas (números e letras)
+        self.draw_board_labels()
+    
+    def draw_board_labels(self):
+        """Desenha números das linhas (1-8) à direita e letras das colunas (a-h) abaixo do tabuleiro"""
+        label_font = pygame.font.SysFont("dejavusans", 14)
+        label_color = (200, 200, 200)
+        
+        # Coordenadas do tabuleiro
+        board_left = SIDE_MENU_WIDTH
+        board_top = TOP_MENU_HEIGHT
+        board_right = SIDE_MENU_WIDTH + BOARD_SIZE
+        board_bottom = TOP_MENU_HEIGHT + BOARD_SIZE
+        
+        # Desenha números das linhas (1-8) à DIREITA
+        for row in range(DIMENSION):
+            rank = 8 - row  # Rank 8 está no topo, rank 1 está no fundo
+            y = board_top + row * SQ_SIZE + SQ_SIZE // 2
+            x = board_right + RIGHT_LABEL_WIDTH // 2
+            
+            label_text = label_font.render(str(rank), True, label_color)
+            label_rect = label_text.get_rect(center=(x, y))
+            self.screen.blit(label_text, label_rect)
+        
+        # Desenha letras das colunas (a-h) ABAIXO
+        for col in range(DIMENSION):
+            file_letter = chr(ord('a') + col)
+            x = board_left + col * SQ_SIZE + SQ_SIZE // 2
+            y = board_bottom + BOTTOM_LABEL_HEIGHT // 2
+            
+            label_text = label_font.render(file_letter, True, label_color)
+            label_rect = label_text.get_rect(center=(x, y))
+            self.screen.blit(label_text, label_rect)
+    
     
     def draw_pieces(self):
         """Desenha as peças no tabuleiro"""
