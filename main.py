@@ -10,6 +10,7 @@ import chess.engine
 import sys
 import os
 import threading
+import math
 
 # Configurações
 # Espaço reservado no topo para textos/informações (não sobreporá o tabuleiro)
@@ -42,6 +43,7 @@ WHITE = (240, 217, 181)
 BLACK = (181, 136, 99)
 HIGHLIGHT = (186, 202, 68)
 SELECTED = (246, 246, 130)
+HINT_COLOR = (100, 150, 255)  # Azul para dicas
 CHECK_COLOR = (255, 100, 100)  # Vermelho para aviso de check
 
 # Cores para controle
@@ -67,6 +69,7 @@ BASE_BUTTON_Y = TOP_MENU_HEIGHT + 40
 BACK_BUTTON_RECT = pygame.Rect(BUTTON_X, BASE_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT)
 FORWARD_BUTTON_RECT = pygame.Rect(BUTTON_X, BASE_BUTTON_Y + (BUTTON_HEIGHT + 10), BUTTON_WIDTH, BUTTON_HEIGHT)
 ENGINE_BUTTON_RECT = pygame.Rect(BUTTON_X, BASE_BUTTON_Y + 2 * (BUTTON_HEIGHT + 10), BUTTON_WIDTH, BUTTON_HEIGHT)
+HINT_BUTTON_RECT = pygame.Rect(BUTTON_X, BASE_BUTTON_Y + 3 * (BUTTON_HEIGHT + 10), BUTTON_WIDTH, BUTTON_HEIGHT)
 BUTTON_COLOR = (100, 100, 150)
 BUTTON_HOVER_COLOR = (150, 150, 200)
 BUTTON_TEXT_COLOR = (255, 255, 255)
@@ -98,6 +101,29 @@ PIECE_DEFENSE_VALUES = {
     chess.PAWN: 9,       # 10 - 1
     chess.KING: 0.1        # Rei não defende casas da mesma forma
 }
+
+def draw_arrow(screen, color, start_pos, end_pos, width=4, arrowhead_length=15, arrowhead_angle=math.pi / 6):
+    """Desenha uma linha com uma seta na ponta."""
+    try:
+        # Desenha a linha principal
+        pygame.draw.line(screen, color, start_pos, end_pos, width)
+
+        # Calcula o ângulo da linha
+        dx = end_pos[0] - start_pos[0]
+        dy = end_pos[1] - start_pos[1]
+        angle = math.atan2(dy, dx)
+
+        # Calcula os pontos para a ponta da seta
+        p1 = (end_pos[0] - arrowhead_length * math.cos(angle - arrowhead_angle),
+              end_pos[1] - arrowhead_length * math.sin(angle - arrowhead_angle))
+        p2 = (end_pos[0] - arrowhead_length * math.cos(angle + arrowhead_angle),
+              end_pos[1] - arrowhead_length * math.sin(angle + arrowhead_angle))
+        
+        # Desenha o polígono da ponta da seta
+        pygame.draw.polygon(screen, color, [end_pos, p1, p2])
+    except (ValueError, ZeroDivisionError):
+        # Ignora erros matemáticos se o start e end pos forem iguais
+        pass
 
 def show_menu():
     """Exibe menu inicial e retorna a escolha do jogador"""
@@ -222,6 +248,11 @@ class ChessGame:
         self.analysis_thread = None
         self.analysis_info = None
         self.is_analyzing = False
+
+        # Dicas da engine
+        self.hint_moves = []
+        self.is_calculating_hints = False
+        self.hint_thread = None
         
         # Controle de visualização
         self.show_control = True
@@ -552,13 +583,38 @@ class ChessGame:
                                      (SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE // 2, 
                                       TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE // 2), 
                                      SQ_SIZE // 6)
-                
+
                 # Exibe mobilidade da casa (canto inferior direito)
                 mobility = self.calculate_square_mobility(square)
                 mobility_text = self.info_font.render(str(mobility), True, (200, 200, 200))
                 mobility_rect = mobility_text.get_rect(bottomright=(SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE - 3, 
                                                                      TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE - 3))
                 self.screen.blit(mobility_text, mobility_rect)
+
+        # Desenha as dicas da engine como linhas (similar ao último lance)
+        if self.hint_moves:
+            overlay_color = (*HINT_COLOR, 80) # Azul translúcido
+            overlay_surf = pygame.Surface((SQ_SIZE, SQ_SIZE), pygame.SRCALPHA)
+            overlay_surf.fill(overlay_color)
+
+            for move in self.hint_moves:
+                try:
+                    from_sq = move.from_square
+                    to_sq = move.to_square
+
+                    from_col = chess.square_file(from_sq)
+                    from_row = 7 - chess.square_rank(from_sq)
+                    to_col = chess.square_file(to_sq)
+                    to_row = 7 - chess.square_rank(to_sq)
+
+                    from_center = (SIDE_MENU_WIDTH + from_col * SQ_SIZE + SQ_SIZE // 2, TOP_MENU_HEIGHT + from_row * SQ_SIZE + SQ_SIZE // 2)
+                    to_center = (SIDE_MENU_WIDTH + to_col * SQ_SIZE + SQ_SIZE // 2, TOP_MENU_HEIGHT + to_row * SQ_SIZE + SQ_SIZE // 2)
+
+                    # Desenha seta que conecta origem -> destino
+                    draw_arrow(self.screen, HINT_COLOR, from_center, to_center, width=4, arrowhead_length=SQ_SIZE * 0.3)
+                except Exception:
+                    # Ignora erros de desenho para não quebrar a renderização
+                    pass
 
         # Realça o último movimento (origem -> destino)
         if hasattr(self, 'last_move') and self.last_move is not None:
@@ -731,6 +787,7 @@ class ChessGame:
         forward_hover = FORWARD_BUTTON_RECT.collidepoint(mouse_pos)
         # Botão de engine aparece se foi originalmente PvE (mesmo que agora seja PvP)
         engine_hover = ENGINE_BUTTON_RECT.collidepoint(mouse_pos) if self.original_mode == "pve" else False
+        hint_hover = HINT_BUTTON_RECT.collidepoint(mouse_pos)
         
         # Desenha botão voltar
         back_color = BUTTON_HOVER_COLOR if back_hover else BUTTON_COLOR
@@ -763,6 +820,17 @@ class ChessGame:
             engine_text = self.info_font.render(engine_label, True, BUTTON_TEXT_COLOR)
             engine_rect = engine_text.get_rect(center=ENGINE_BUTTON_RECT.center)
             self.screen.blit(engine_text, engine_rect)
+
+        # Desenha botão de Dicas
+        hint_label = "Dicas..." if self.is_calculating_hints else "Dicas"
+        hint_color = BUTTON_HOVER_COLOR if hint_hover else BUTTON_COLOR
+        if self.is_calculating_hints:
+            hint_color = BUTTON_DISABLED_COLOR
+        pygame.draw.rect(self.screen, hint_color, HINT_BUTTON_RECT)
+        pygame.draw.rect(self.screen, (255, 255, 255), HINT_BUTTON_RECT, 2)
+        hint_text = self.info_font.render(hint_label, True, BUTTON_TEXT_COLOR)
+        hint_rect = hint_text.get_rect(center=HINT_BUTTON_RECT.center)
+        self.screen.blit(hint_text, hint_rect)
     
     def handle_button_click(self, mouse_pos):
         """Processa clique em botões"""
@@ -788,6 +856,9 @@ class ChessGame:
                 self.mode = self.original_mode
                 # Se for seu turno, permite jogar imediatamente
                 self.allow_engine_move = True
+        elif HINT_BUTTON_RECT.collidepoint(mouse_pos):
+            # Calcula e mostra as dicas
+            self.get_engine_hints()
     
     def make_engine_move(self):
         """Faz a engine jogar"""
@@ -809,6 +880,7 @@ class ChessGame:
                     self.san_history.append(san)
                 # Limpa redo_stack quando novo movimento é feito
                 self.redo_stack = []
+                self.hint_moves = [] # Limpa dicas após movimento
                 self.start_analysis()
             self.engine_thinking = False
     
@@ -843,6 +915,7 @@ class ChessGame:
             if san:
                 self.history_last_move_san = san
                 self.san_history.append(san)
+            self.hint_moves = [] # Limpa dicas
             self.start_analysis()
     
     def undo_to_human_turn(self):
@@ -879,6 +952,7 @@ class ChessGame:
         
         # Bloqueia engine para permitir humano jogar
         self.allow_engine_move = False
+        self.hint_moves = [] # Limpa dicas
         self.start_analysis()
 
     def stop_analysis(self):
@@ -914,6 +988,83 @@ class ChessGame:
 
         self.analysis_thread = threading.Thread(target=analysis_worker, daemon=True)
         self.analysis_thread.start()
+
+    def get_engine_hints(self):
+        """Calcula e armazena os melhores movimentos que não perdem muito material."""
+        if not self.analysis_engine or self.is_calculating_hints:
+            return
+
+        self.is_calculating_hints = True
+        self.hint_moves = []  # Limpa dicas anteriores
+
+        def hint_worker():
+            try:
+                print("\n--- Calculando Dicas ---")
+                # 1. Obter a avaliação da posição atual
+                current_info = self.analysis_engine.analyse(self.board, chess.engine.Limit(depth=18))
+                current_score = current_info["score"].relative
+
+                # Lida com a avaliação atual, seja mate ou centipeões
+                is_current_mate = current_score.is_mate()
+                if is_current_mate:
+                    current_eval = f"Mate em {current_score.mate()}"
+                    # Usamos um valor alto para comparação, negativo se for mate contra nós
+                    current_cp = (100000 - current_score.mate()) if current_score.mate() > 0 else (-100000 + current_score.mate())
+                else:
+                    current_cp = current_score.score()
+                    current_eval = f"{current_cp / 100.0:+.2f}"
+                print(f"Avaliação da posição atual: {current_eval}")
+                
+                evaluated_moves = []
+                # 2. Avaliar cada lance legal
+                for move in self.board.legal_moves:
+                    temp_board = self.board.copy()
+                    temp_board.push(move)
+                    info = self.analysis_engine.analyse(temp_board, chess.engine.Limit(depth=12))
+                    # A avaliação é do ponto de vista do oponente, então a invertemos
+                    move_score = info["score"].pov(self.board.turn)
+
+                    # Adiciona o lance à lista para ordenação posterior
+                    evaluated_moves.append((move, move_score))
+
+                # 3. Ordenar os lances. Mates vêm primeiro.
+                def sort_key(item):
+                    score = item[1]
+                    if score.is_mate():
+                        # Prioriza mates. Quanto menor o número de lances, maior o valor.
+                        # Apenas mates favoráveis (mate() > 0) devem ter prioridade alta.
+                        mate_in = score.mate()
+                        if mate_in > 0:
+                            return 100000 - mate_in  # Mate em 1 > Mate em 2
+                        else:
+                            return -100000 - mate_in # Mate sofrido em 1 < Mate sofrido em 2
+                    else:
+                        # Avaliação normal em centipeões.
+                        return score.score()
+
+                evaluated_moves.sort(key=sort_key, reverse=True)
+                
+                # 4. Filtrar e imprimir os lances que não perdem muito e armazená-los
+                good_moves = []
+                for move, move_score in evaluated_moves:
+                    move_cp = sort_key((move, move_score))
+                    # Adiciona se for um mate favorável ou se a perda for menor que 100 centipeões
+                    if (move_score.is_mate() and move_score.mate() > 0) or (not move_score.is_mate() and current_cp - move_cp <= 100):
+                        good_moves.append(move)
+                        san = self.board.san(move)
+                        eval_str = f"Mate em {move_score.mate()}" if move_score.is_mate() else f"{move_cp / 100.0:+.2f}"
+                        print(f"  [DICA] Lance: {san:<8} | Eval: {eval_str}")
+                
+                self.hint_moves = good_moves
+
+            except (chess.engine.EngineTerminatedError, chess.engine.EngineError) as e:
+                print(f"Erro ao calcular dicas: {e}")  # Ignora erros se a engine for fechada
+            finally:
+                print("--- Fim do cálculo de dicas ---")
+                self.is_calculating_hints = False
+
+        self.hint_thread = threading.Thread(target=hint_worker, daemon=True)
+        self.hint_thread.start()
     
     def handle_click(self, square):
         """Processa clique em uma casa do tabuleiro"""
@@ -957,6 +1108,7 @@ class ChessGame:
                 self.redo_stack = []
                 # Permite engine jogar após humano fazer movimento
                 self.allow_engine_move = True
+                self.hint_moves = [] # Limpa dicas após movimento
                 self.start_analysis()
                 self.selected_square = None
                 self.valid_moves = []
@@ -989,7 +1141,7 @@ class ChessGame:
                 
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     # Verifica clique em botões primeiro
-                    if (BACK_BUTTON_RECT.collidepoint(mouse_pos) or FORWARD_BUTTON_RECT.collidepoint(mouse_pos) or
+                    if (BACK_BUTTON_RECT.collidepoint(mouse_pos) or FORWARD_BUTTON_RECT.collidepoint(mouse_pos) or HINT_BUTTON_RECT.collidepoint(mouse_pos) or
                         ENGINE_BUTTON_RECT.collidepoint(mouse_pos)):
                         self.handle_button_click(mouse_pos)
                     else:
@@ -1008,6 +1160,7 @@ class ChessGame:
                             # Desfaz apenas um lance
                             self.undo_move()
                         self.start_analysis()
+                        self.hint_moves = [] # Limpa dicas
                         self.selected_square = None
                         self.valid_moves = []
 
@@ -1022,6 +1175,7 @@ class ChessGame:
                         self.redo_stack = []
                         self.san_history = []
                         self.history_last_move_san = None
+                        self.hint_moves = [] # Limpa dicas
                         # Permite engine jogar novamente
                         self.allow_engine_move = True
                         self.start_analysis()
