@@ -9,6 +9,7 @@ import chess
 import chess.engine
 import sys
 import os
+import threading
 
 # Configurações
 # Espaço reservado no topo para textos/informações (não sobreporá o tabuleiro)
@@ -32,7 +33,7 @@ SQ_SIZE = BOARD_SIZE // DIMENSION
 FPS = 60
 
 # Caminho do Stockfish
-STOCKFISH_PATH = "stockfish-windows-x86-64-avx2.exe" # "/nix/store/l4y0zjkvmnbqwz8grmb34d280n599i75-stockfish-17/bin/stockfish"
+STOCKFISH_PATH = "./stockfish-ubuntu-x86-64-avx2" # "stockfish-windows-x86-64-avx2.exe" # "/nix/store/l4y0zjkvmnbqwz8grmb34d280n599i75-stockfish-17/bin/stockfish"
 if not os.path.exists(STOCKFISH_PATH):
     STOCKFISH_PATH = "stockfish"
 
@@ -216,6 +217,12 @@ class ChessGame:
         self.engine = None
         self.engine_thinking = False
         
+        # Engine de análise (separada da engine de jogo)
+        self.analysis_engine = None
+        self.analysis_thread = None
+        self.analysis_info = None
+        self.is_analyzing = False
+        
         # Controle de visualização
         self.show_control = True
         self.show_weak_squares = True  # Mostrar casas fracas permanentes
@@ -229,6 +236,15 @@ class ChessGame:
             except Exception as e:
                 print(f"Erro ao inicializar Stockfish: {e}")
                 self.mode = "pvp"
+        
+        # Inicializa engine de análise
+        try:
+            self.analysis_engine = chess.engine.SimpleEngine.popen_uci(STOCKFISH_PATH)
+            self.analysis_engine.configure({"Skill Level": 20})  # Força máxima para análise
+        except Exception as e:
+            print(f"Erro ao inicializar engine de análise: {e}")
+            self.analysis_engine = None
+        self.start_analysis()  # Inicia análise da posição inicial
         
         # Fonte para peças (DejaVu Sans suporta símbolos Unicode de xadrez)
         self.piece_font = pygame.font.SysFont("dejavusans", 64)
@@ -655,6 +671,22 @@ class ChessGame:
         text_surface = self.info_font.render(info_text, True, (255, 255, 255))
         text_y = (TOP_MENU_HEIGHT - text_surface.get_height()) // 2
         self.screen.blit(text_surface, (10, text_y))
+ 
+        # Exibe avaliação da engine
+        if self.analysis_info:
+            score = self.analysis_info.relative
+            if score.is_mate():
+                eval_text = f"Eval: Mate em {score.mate()}"
+            else:
+                # Converte para centipeões e divide por 100 para ter o valor em peões
+                eval_value = score.score() / 100.0
+                eval_text = f"Eval: {eval_value:+.2f}"
+ 
+            eval_surface = self.info_font.render(eval_text, True, (220, 220, 100))
+            # Posiciona a avaliação à direita do texto de info, com uma margem
+            eval_x = text_surface.get_width() + 20
+            self.screen.blit(eval_surface, (eval_x, text_y))
+
         # Mostra o último lance histórico (notação algébrica) no canto superior direito
         if hasattr(self, 'history_last_move_san') and self.history_last_move_san:
             last_move_surf = self.info_font.render(self.history_last_move_san, True, (200, 200, 200))
@@ -738,6 +770,7 @@ class ChessGame:
             # Voltar apenas um movimento
             self.undo_move()
             self.selected_square = None
+            self.start_analysis()
             self.valid_moves = []
         elif FORWARD_BUTTON_RECT.collidepoint(mouse_pos):
             self.redo_move()
@@ -776,6 +809,7 @@ class ChessGame:
                     self.san_history.append(san)
                 # Limpa redo_stack quando novo movimento é feito
                 self.redo_stack = []
+                self.start_analysis()
             self.engine_thinking = False
     
     def undo_move(self):
@@ -809,6 +843,7 @@ class ChessGame:
             if san:
                 self.history_last_move_san = san
                 self.san_history.append(san)
+            self.start_analysis()
     
     def undo_to_human_turn(self):
         """Volta até o turno humano anterior (em modo PvE)"""
@@ -844,6 +879,41 @@ class ChessGame:
         
         # Bloqueia engine para permitir humano jogar
         self.allow_engine_move = False
+        self.start_analysis()
+
+    def stop_analysis(self):
+        """Para a thread de análise atual"""
+        if self.analysis_thread and self.analysis_thread.is_alive():
+            self.is_analyzing = False
+            self.analysis_thread.join()
+        self.analysis_thread = None
+
+    def start_analysis(self):
+        """Inicia a análise do tabuleiro em uma thread separada"""
+        if not self.analysis_engine:
+            return
+
+        self.stop_analysis()  # Garante que qualquer análise anterior seja interrompida
+
+        self.is_analyzing = True
+        self.analysis_info = None  # Limpa a avaliação anterior
+
+        def analysis_worker():
+            # Usamos um with-statement para garantir que o processo de análise seja encerrado
+            try:
+                with self.analysis_engine.analysis(self.board, limit=chess.engine.Limit(time=5.0)) as analysis:
+                    for info in analysis:
+                        if not self.is_analyzing:  # Verifica se a análise foi cancelada
+                            break
+                        if 'score' in info:
+                            self.analysis_info = info['score']
+            except (chess.engine.EngineTerminatedError, chess.engine.EngineError):
+                # Ocorre se a engine for fechada enquanto a análise está em andamento
+                pass
+            self.is_analyzing = False
+
+        self.analysis_thread = threading.Thread(target=analysis_worker, daemon=True)
+        self.analysis_thread.start()
     
     def handle_click(self, square):
         """Processa clique em uma casa do tabuleiro"""
@@ -887,6 +957,7 @@ class ChessGame:
                 self.redo_stack = []
                 # Permite engine jogar após humano fazer movimento
                 self.allow_engine_move = True
+                self.start_analysis()
                 self.selected_square = None
                 self.valid_moves = []
             else:
@@ -936,6 +1007,7 @@ class ChessGame:
                         else:
                             # Desfaz apenas um lance
                             self.undo_move()
+                        self.start_analysis()
                         self.selected_square = None
                         self.valid_moves = []
 
@@ -952,6 +1024,7 @@ class ChessGame:
                         self.history_last_move_san = None
                         # Permite engine jogar novamente
                         self.allow_engine_move = True
+                        self.start_analysis()
 
                     # Alternar visualização de controle com 'C'
                     elif event.key == pygame.K_c:
@@ -977,8 +1050,13 @@ class ChessGame:
             self.clock.tick(FPS)
         
         # Cleanup da engine
+        # Para a thread de análise primeiro para evitar erros
+        self.stop_analysis()
+        # Fecha as engines
         if self.engine:
             self.engine.quit()
+        if self.analysis_engine:
+            self.analysis_engine.quit()
         
         pygame.quit()
         sys.exit()
