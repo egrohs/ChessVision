@@ -11,9 +11,20 @@ import sys
 import os
 
 # Configurações
-WIDTH = HEIGHT = 800
+# Espaço reservado no topo para textos/informações (não sobreporá o tabuleiro)
+TOP_MENU_HEIGHT = 40
+# Altura total da janela (inclui TOP_MENU_HEIGHT)
+HEIGHT = 800 + TOP_MENU_HEIGHT
+# Largura do menu lateral onde ficam os botões
+SIDE_MENU_WIDTH = 200
+# Tamanho em pixels do tabuleiro (lado) - usamos a altura como referência
+# O tabuleiro ocupa a área abaixo do topo: BOARD_SIZE = HEIGHT - TOP_MENU_HEIGHT
+BOARD_SIZE = HEIGHT - TOP_MENU_HEIGHT
+# Largura total da janela = menu lateral + tabuleiro
+WIDTH = SIDE_MENU_WIDTH + BOARD_SIZE
 DIMENSION = 8
-SQ_SIZE = WIDTH // DIMENSION
+# Tamanho de cada casa
+SQ_SIZE = BOARD_SIZE // DIMENSION
 FPS = 60
 
 # Caminho do Stockfish
@@ -40,14 +51,17 @@ WEAK_SQUARE_BLACK = (200, 100, 50)  # Laranja mais avermelhado para fraqueza pre
 # Espessura do contorno das peças (em pixels)
 OUTLINE_THICKNESS = 2
 
-# Botões de voltar/avançar (posição e tamanho)
+# Botões de voltar/avançar (posição e tamanho) - menu lateral à esquerda
 BUTTON_HEIGHT = 40
-BUTTON_WIDTH = 100
+BUTTON_WIDTH = SIDE_MENU_WIDTH - 2 * 10
 BUTTON_MARGIN = 10
-BUTTON_Y = HEIGHT - BUTTON_HEIGHT - BUTTON_MARGIN
-BACK_BUTTON_RECT = pygame.Rect(BUTTON_MARGIN, BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT)
-FORWARD_BUTTON_RECT = pygame.Rect(BUTTON_MARGIN + BUTTON_WIDTH + BUTTON_MARGIN, BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT)
-ENGINE_BUTTON_RECT = pygame.Rect(BUTTON_MARGIN + 2 * (BUTTON_WIDTH + BUTTON_MARGIN), BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT)
+# Posição X fixa dentro o menu lateral
+BUTTON_X = BUTTON_MARGIN
+# Y iniciais (empilhados verticalmente) — deslocados pelo TOP_MENU_HEIGHT
+BASE_BUTTON_Y = TOP_MENU_HEIGHT + 40
+BACK_BUTTON_RECT = pygame.Rect(BUTTON_X, BASE_BUTTON_Y, BUTTON_WIDTH, BUTTON_HEIGHT)
+FORWARD_BUTTON_RECT = pygame.Rect(BUTTON_X, BASE_BUTTON_Y + (BUTTON_HEIGHT + 10), BUTTON_WIDTH, BUTTON_HEIGHT)
+ENGINE_BUTTON_RECT = pygame.Rect(BUTTON_X, BASE_BUTTON_Y + 2 * (BUTTON_HEIGHT + 10), BUTTON_WIDTH, BUTTON_HEIGHT)
 BUTTON_COLOR = (100, 100, 150)
 BUTTON_HOVER_COLOR = (150, 150, 200)
 BUTTON_TEXT_COLOR = (255, 255, 255)
@@ -428,7 +442,7 @@ class ChessGame:
                     square_color = WHITE if is_light else BLACK
                 
                 # Desenha a casa
-                rect = pygame.Rect(col * SQ_SIZE, row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
+                rect = pygame.Rect(SIDE_MENU_WIDTH + col * SQ_SIZE, TOP_MENU_HEIGHT + row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
                 pygame.draw.rect(self.screen, square_color, rect)
                 
                 # Adiciona borda para fraqueza permanente
@@ -449,19 +463,19 @@ class ChessGame:
                 # Destaca casa selecionada
                 if self.selected_square == square:
                     pygame.draw.rect(self.screen, SELECTED, rect, 4)
-                
+
                 # Destaca movimentos válidos
                 if square in [move.to_square for move in self.valid_moves]:
                     pygame.draw.circle(self.screen, HIGHLIGHT, 
-                                     (col * SQ_SIZE + SQ_SIZE // 2, 
-                                      row * SQ_SIZE + SQ_SIZE // 2), 
+                                     (SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE // 2, 
+                                      TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE // 2), 
                                      SQ_SIZE // 6)
                 
                 # Exibe mobilidade da casa (canto inferior direito)
                 mobility = self.calculate_square_mobility(square)
                 mobility_text = self.info_font.render(str(mobility), True, (200, 200, 200))
-                mobility_rect = mobility_text.get_rect(bottomright=(col * SQ_SIZE + SQ_SIZE - 3, 
-                                                                     row * SQ_SIZE + SQ_SIZE - 3))
+                mobility_rect = mobility_text.get_rect(bottomright=(SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE - 3, 
+                                                                     TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE - 3))
                 self.screen.blit(mobility_text, mobility_rect)
 
         # Realça o último movimento (origem -> destino)
@@ -475,15 +489,15 @@ class ChessGame:
                 to_col = chess.square_file(to_sq)
                 to_row = 7 - chess.square_rank(to_sq)
 
-                from_center = (from_col * SQ_SIZE + SQ_SIZE // 2, from_row * SQ_SIZE + SQ_SIZE // 2)
-                to_center = (to_col * SQ_SIZE + SQ_SIZE // 2, to_row * SQ_SIZE + SQ_SIZE // 2)
+                from_center = (SIDE_MENU_WIDTH + from_col * SQ_SIZE + SQ_SIZE // 2, TOP_MENU_HEIGHT + from_row * SQ_SIZE + SQ_SIZE // 2)
+                to_center = (SIDE_MENU_WIDTH + to_col * SQ_SIZE + SQ_SIZE // 2, TOP_MENU_HEIGHT + to_row * SQ_SIZE + SQ_SIZE // 2)
 
                 # Overlay translúcido nas casas de origem e destino
                 overlay_color = (*SELECTED, 100) if len(SELECTED) == 3 else SELECTED
                 overlay_surf = pygame.Surface((SQ_SIZE, SQ_SIZE), pygame.SRCALPHA)
                 overlay_surf.fill(overlay_color)
-                self.screen.blit(overlay_surf, (from_col * SQ_SIZE, from_row * SQ_SIZE))
-                self.screen.blit(overlay_surf, (to_col * SQ_SIZE, to_row * SQ_SIZE))
+                self.screen.blit(overlay_surf, (SIDE_MENU_WIDTH + from_col * SQ_SIZE, TOP_MENU_HEIGHT + from_row * SQ_SIZE))
+                self.screen.blit(overlay_surf, (SIDE_MENU_WIDTH + to_col * SQ_SIZE, TOP_MENU_HEIGHT + to_row * SQ_SIZE))
 
                 # Linha que conecta origem -> destino
                 pygame.draw.line(self.screen, SELECTED, from_center, to_center, 6)
@@ -499,7 +513,7 @@ class ChessGame:
             if king_square is not None:
                 king_col = chess.square_file(king_square)
                 king_row = 7 - chess.square_rank(king_square)
-                king_rect = pygame.Rect(king_col * SQ_SIZE, king_row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
+                king_rect = pygame.Rect(SIDE_MENU_WIDTH + king_col * SQ_SIZE, TOP_MENU_HEIGHT + king_row * SQ_SIZE, SQ_SIZE, SQ_SIZE)
                 # Desenha borda grossa vermelha
                 pygame.draw.rect(self.screen, CHECK_COLOR, king_rect, 8)
     
@@ -526,15 +540,15 @@ class ChessGame:
                 t = OUTLINE_THICKNESS
                 offsets = [(-t, 0), (t, 0), (0, -t), (0, t), (-t, -t), (-t, t), (t, -t), (t, t)]
                 for dx, dy in offsets:
-                    outline_rect.center = (col * SQ_SIZE + SQ_SIZE // 2 + dx,
-                                           row * SQ_SIZE + SQ_SIZE // 2 + dy)
+                    outline_rect.center = (SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE // 2 + dx,
+                                           TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE // 2 + dy)
                     self.screen.blit(outline_surf, outline_rect)
 
                 # Desenha a peça principal por cima do contorno
                 text_surface = self.piece_font.render(symbol, True, color)
                 text_rect = text_surface.get_rect()
-                text_rect.center = (col * SQ_SIZE + SQ_SIZE // 2,
-                                  row * SQ_SIZE + SQ_SIZE // 2)
+                text_rect.center = (SIDE_MENU_WIDTH + col * SQ_SIZE + SQ_SIZE // 2,
+                                  TOP_MENU_HEIGHT + row * SQ_SIZE + SQ_SIZE // 2)
                 self.screen.blit(text_surface, text_rect)
     
     def draw_info(self):
@@ -544,30 +558,40 @@ class ChessGame:
         weak_status = "ON" if self.show_weak_squares else "OFF"
         info_text = f"Turno: {turn} | Movimento: {self.board.fullmove_number} | Controle: {control_status} (C) | Fraquezas: {weak_status} (W)"
         
-        # Fundo para o texto
-        pygame.draw.rect(self.screen, (0, 0, 0), (0, 0, WIDTH, 25))
+        # Fundo para o texto (usa TOP_MENU_HEIGHT)
+        pygame.draw.rect(self.screen, (0, 0, 0), (0, 0, WIDTH, TOP_MENU_HEIGHT))
         
         text_surface = self.info_font.render(info_text, True, (255, 255, 255))
-        self.screen.blit(text_surface, (10, 5))
+        text_y = (TOP_MENU_HEIGHT - text_surface.get_height()) // 2
+        self.screen.blit(text_surface, (10, text_y))
         
         # Status do jogo
         if self.board.is_checkmate():
             winner = "Pretas" if self.board.turn == chess.WHITE else "Brancas"
             status = f"Xeque-mate! {winner} vencem!"
             status_surface = self.info_font.render(status, True, (255, 255, 0))
-            self.screen.blit(status_surface, (WIDTH // 2 - 80, 5))
+            status_rect = status_surface.get_rect()
+            self.screen.blit(status_surface, (WIDTH // 2 - status_rect.width // 2, text_y))
         elif self.board.is_stalemate():
             status_surface = self.info_font.render("Empate por afogamento!", True, (255, 255, 0))
-            self.screen.blit(status_surface, (WIDTH // 2 - 80, 5))
+            status_rect = status_surface.get_rect()
+            self.screen.blit(status_surface, (WIDTH // 2 - status_rect.width // 2, text_y))
         elif self.board.is_check():
             status_surface = self.info_font.render("Xeque!", True, (255, 0, 0))
-            self.screen.blit(status_surface, (WIDTH // 2 - 30, 5))
+            status_rect = status_surface.get_rect()
+            self.screen.blit(status_surface, (WIDTH // 2 - status_rect.width // 2, text_y))
     
     def get_square_under_mouse(self):
         """Retorna a casa do tabuleiro sob o cursor do mouse"""
         mouse_pos = pygame.mouse.get_pos()
-        col = mouse_pos[0] // SQ_SIZE
-        row = mouse_pos[1] // SQ_SIZE
+        # Ajusta pela largura do menu lateral
+        x = mouse_pos[0] - SIDE_MENU_WIDTH
+        y = mouse_pos[1] - TOP_MENU_HEIGHT
+        # Se o mouse está sobre o menu lateral ou sobre o topo, não é uma casa do tabuleiro
+        if x < 0 or y < 0:
+            return None
+        col = x // SQ_SIZE
+        row = y // SQ_SIZE
         if 0 <= col < 8 and 0 <= row < 8:
             return chess.square(col, 7 - row)
         return None
