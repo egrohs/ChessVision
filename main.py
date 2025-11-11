@@ -193,6 +193,10 @@ class ChessGame:
         self.valid_moves = []
         # Último movimento (chess.Move) — usado para realce
         self.last_move = None
+        # Histórico: último lance em notação algébrica (não é alterado ao desfazer)
+        self.history_last_move_san = None
+        # Histórico paralelo de SANs alinhado com board.move_stack
+        self.san_history = []
         # Movimentos desfeitos — para implementar refazer
         self.redo_stack = []
         # Flag para bloquear engine após desfazer (permite humano jogar)
@@ -564,6 +568,11 @@ class ChessGame:
         text_surface = self.info_font.render(info_text, True, (255, 255, 255))
         text_y = (TOP_MENU_HEIGHT - text_surface.get_height()) // 2
         self.screen.blit(text_surface, (10, text_y))
+        # Mostra o último lance histórico (notação algébrica) no canto superior direito
+        if hasattr(self, 'history_last_move_san') and self.history_last_move_san:
+            last_move_surf = self.info_font.render(self.history_last_move_san, True, (200, 200, 200))
+            lm_rect = last_move_surf.get_rect()
+            self.screen.blit(last_move_surf, (WIDTH - lm_rect.width - 10, text_y))
         
         # Status do jogo
         if self.board.is_checkmate():
@@ -666,9 +675,18 @@ class ChessGame:
             self.engine_thinking = True
             result = self.engine.play(self.board, chess.engine.Limit(time=0.5))
             if result.move:
+                # Calcula SAN antes de aplicar o movimento
+                try:
+                    san = self.board.san(result.move)
+                except Exception:
+                    san = None
                 self.board.push(result.move)
                 # Atualiza o último movimento
                 self.last_move = result.move
+                # Atualiza histórico do último lance em notação algébrica e lista de SANs
+                if san:
+                    self.history_last_move_san = san
+                    self.san_history.append(san)
                 # Limpa redo_stack quando novo movimento é feito
                 self.redo_stack = []
             self.engine_thinking = False
@@ -676,21 +694,34 @@ class ChessGame:
     def undo_move(self):
         """Desfaz um movimento e salva em redo_stack"""
         if len(self.board.move_stack) > 0:
+            # Pop SAN from history (if available) and store with the popped move
+            san = self.san_history.pop() if len(self.san_history) > 0 else None
             move = self.board.pop()
-            self.redo_stack.append(move)
-            # Atualiza last_move
+            self.redo_stack.append((move, san))
+            # Atualiza last_move e histórico SAN com base na posição atual
             if len(self.board.move_stack) > 0:
                 self.last_move = self.board.move_stack[-1]
+                self.history_last_move_san = self.san_history[-1] if len(self.san_history) > 0 else None
             else:
                 self.last_move = None
+                self.history_last_move_san = None
     
     def redo_move(self):
         """Refaz um movimento da redo_stack"""
         if len(self.redo_stack) > 0:
-            move = self.redo_stack.pop()
+            item = self.redo_stack.pop()
+            # item is (move, san)
+            if isinstance(item, tuple) and len(item) == 2:
+                move, san = item
+            else:
+                move = item
+                san = None
             self.board.push(move)
-            # Atualiza last_move
+            # Atualiza last_move e histórico SAN
             self.last_move = move
+            if san:
+                self.history_last_move_san = san
+                self.san_history.append(san)
     
     def undo_to_human_turn(self):
         """Volta até o turno humano anterior (em modo PvE)"""
@@ -702,21 +733,27 @@ class ChessGame:
         # Se é o turno da engine agora, significa que humano já jogou
         # Desfaz 2 movimentos (último do humano + último da engine)
         if self.board.turn == self.engine_side and len(self.board.move_stack) >= 2:
-            # Desfaz engine + humano
+            # Desfaz engine + humano (mantendo SANs)
+            san1 = self.san_history.pop() if len(self.san_history) > 0 else None
             move1 = self.board.pop()
-            self.redo_stack.insert(0, move1)
+            self.redo_stack.insert(0, (move1, san1))
+            san2 = self.san_history.pop() if len(self.san_history) > 0 else None
             move2 = self.board.pop()
-            self.redo_stack.insert(0, move2)
+            self.redo_stack.insert(0, (move2, san2))
         elif len(self.board.move_stack) >= 1:
             # É o turno do humano (engine ainda não jogou), desfaz apenas o lance do humano
+            san = self.san_history.pop() if len(self.san_history) > 0 else None
             move = self.board.pop()
-            self.redo_stack.append(move)
+            self.redo_stack.append((move, san))
         
         # Atualiza last_move
         if len(self.board.move_stack) > 0:
             self.last_move = self.board.move_stack[-1]
+            # Atualiza histórico SAN para o último SAN disponível
+            self.history_last_move_san = self.san_history[-1] if len(self.san_history) > 0 else None
         else:
             self.last_move = None
+            self.history_last_move_san = None
         
         # Bloqueia engine para permitir humano jogar
         self.allow_engine_move = False
@@ -747,9 +784,18 @@ class ChessGame:
             
             # Tenta fazer o movimento
             if move in self.board.legal_moves:
+                # Calcula SAN antes de aplicar o movimento (board.san requer o estado anterior)
+                try:
+                    san = self.board.san(move)
+                except Exception:
+                    san = None
                 self.board.push(move)
                 # Armazena o último movimento para realce
                 self.last_move = move
+                # Atualiza histórico do último lance em notação algébrica e lista de SANs
+                if san:
+                    self.history_last_move_san = san
+                    self.san_history.append(san)
                 # Limpa redo_stack quando novo movimento é feito
                 self.redo_stack = []
                 # Permite engine jogar após humano fazer movimento
@@ -796,22 +842,16 @@ class ChessGame:
                 elif event.type == pygame.KEYDOWN:
                     # Desfazer movimento com 'Z'
                     if event.key == pygame.K_z and len(self.board.move_stack) > 0:
-                        # No modo PvE, desfaz 2 movimentos (jogador + engine)
+                        # Utilize as funções já existentes para manter SANs e redo_stack consistentes
                         if self.mode == "pve" and len(self.board.move_stack) >= 2:
-                            self.board.pop()
-                            self.board.pop()
+                            # Volta até o turno humano anterior (desfaz 2 lances)
+                            self.undo_to_human_turn()
                         else:
-                            self.board.pop()
+                            # Desfaz apenas um lance
+                            self.undo_move()
                         self.selected_square = None
                         self.valid_moves = []
-                        # Atualiza last_move para o último movimento existente (ou None)
-                        if len(self.board.move_stack) > 0:
-                            self.last_move = self.board.move_stack[-1]
-                        else:
-                            self.last_move = None
-                        # Limpa redo_stack quando desfazer via teclado
-                        self.redo_stack = []
-                    
+
                     # Reiniciar com 'R'
                     elif event.key == pygame.K_r:
                         self.board.reset()
@@ -819,15 +859,17 @@ class ChessGame:
                         self.valid_moves = []
                         # Limpa realce do último movimento
                         self.last_move = None
-                        # Limpa redo_stack
+                        # Limpa redo_stack e SAN history
                         self.redo_stack = []
+                        self.san_history = []
+                        self.history_last_move_san = None
                         # Permite engine jogar novamente
                         self.allow_engine_move = True
-                    
+
                     # Alternar visualização de controle com 'C'
                     elif event.key == pygame.K_c:
                         self.show_control = not self.show_control
-                    
+
                     # Alternar visualização de casas fracas com 'W'
                     elif event.key == pygame.K_w:
                         self.show_weak_squares = not self.show_weak_squares
